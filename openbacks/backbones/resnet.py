@@ -122,7 +122,7 @@ class ResNet(BaseModule):
         deep_stem=False,
         channels=(64, 128, 256, 512),
         avg_down=False,
-        out_indices=(0, 1, 2, 3),
+        out_indices=(0, 1, 2, 3, 4),
         init_config=None,
         act_config=None,
         norm_config=None,
@@ -190,7 +190,8 @@ class ResNet(BaseModule):
                     stride=stride,
                     act_config=act_config,
                     eps=1e-5,
-                    hidden_dim_ratio=hidden_dim_ratio
+                    hidden_dim_ratio=hidden_dim_ratio,
+                    avg_down=avg_down
                 ))
             
             self.add_module(f'layer{layer + 1}', nn.Sequential(*block))
@@ -198,12 +199,12 @@ class ResNet(BaseModule):
         self.blocks = (self.layer1, self.layer2, self.layer3, self.layer4)
         self.init()
     
-
     def forward(self, x):
         x = self.stem(x)
+        
+        feats = [x] if 0 in self.out_indices else list()
 
-        feats = list()
-        for index, block in enumerate(self.blocks):
+        for index, block in enumerate(self.blocks, 1):
             x = block(x)
             if index in self.out_indices:
                 feats.append(x)

@@ -151,7 +151,7 @@ class ConvNeXt(BaseModule):
             output_stride=32,
             depths=(3, 3, 9, 3),
             dims=(96, 192, 384, 768),
-            out_indices=(0, 1, 2, 3),
+            out_indices=(0, 1, 2, 3, 4),
             kernel_sizes=7,
             ls_init_value=1e-6,
             patch_size=4,
@@ -214,8 +214,9 @@ class ConvNeXt(BaseModule):
     def forward(self, x):
         x = self.stem(x)
 
-        feats = list()
-        for index, stage in enumerate(self.stages):
+        feats = [x] if 0 in self.out_indices else list()
+
+        for index, stage in enumerate(self.stages, 1):
             x = stage(x)
             if index in self.out_indices:
                 feats.append(x)

@@ -344,6 +344,7 @@ class SwinTransformer(BaseModule):
             embed_dim=96,
             depths=(2, 2, 6, 2),
             num_heads=(3, 6, 12, 24),
+            out_indices=(0, 1, 2, 3, 4),
             window_size=7,
             drop_rate=0.0,
             attn_drop_rate=0.0,
@@ -389,14 +390,14 @@ class SwinTransformer(BaseModule):
         self.init()
     
     def forward(self, x):
-        feats = list()
         x = self.patch_embed(x)
         x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
 
-        # x = self.layers(x)
+        feats = [x] if 0 in self.out_indices else list()
         
-        for layer in self.layers:
-            x = layer(x)
-            feats.append(x)
+        for index, block in enumerate(self.layers, 1):
+            x = block(x)
+            if index in self.out_indices:
+                feats.append(x)
         return feats
