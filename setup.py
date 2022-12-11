@@ -9,12 +9,12 @@ DESCRIPTION = 'sementic segmentation lib'
 URL = 'git@github.com:AokiMasataka/open_backbones.git'
 EMAIL = None
 AUTHOR = None
-REQUIRES_PYTHON = '>=3.7.0'
+REQUIRES_PYTHON = '>=3.8.0'
 VERSION = __version__
 
 INSTALL_REQUIRES = ['torch']
 EXTRAS_REQUIRE = {}
-PACKAGES = ['openbac']
+PACKAGES = ['openbacks']
 
 CLASSIFIERS = [
     'Intended Audience :: Science/Research',
