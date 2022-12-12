@@ -24,31 +24,30 @@ class AttentionBase(nn.Module):
 
         attention_probs = attention_scores.softmax(dim=2).to(value.dtype)
         hidden_states = torch.bmm(attention_probs, value)
-        hidden_states = hidden_states.view(B, N, self.num_heads, self.dim_inner // self.num_heads)
-        hidden_states = hidden_states.permute(0, 2, 1, 3).reshape(B // self.num_heads, N, self.dim_inner * self.num_heads)
+        hidden_states = hidden_states.view(B, N, self.num_heads, self.dim_query // self.num_heads)
+        hidden_states = hidden_states.permute(0, 2, 1, 3).reshape(B // self.num_heads, N, self.dim_query * self.num_heads)
         return hidden_states
 
 
-class SelfAttention(nn.Module):
-    def __init__(self, dim_query, dim_inner, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
+class SelfAttention(AttentionBase):
+    def __init__(self, dim_query, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
         super(SelfAttention, self).__init__()
-        dim_cross = dim_query if dim_cross is None else dim_cross
-        head_dim = dim_inner // num_heads
+        self.dim_query = dim_query
+        self.dim_head = dim_query // num_heads
         self.num_heads = num_heads
-        self.dim_inner = dim_inner
-        self.scale = head_dim ** -0.5
+        self.scale = self.dim_head ** -0.5
         self.upcast_attention = upcast_attention
         
-        self.qkv = nn.Linear(dim_cross, dim_inner * 3, bias=bias)
+        self.qkv = nn.Linear(dim_query, dim_query * 3, bias=bias)
 
-        self.out_proj = nn.Linear(dim_inner, dim_query)
+        self.out_proj = nn.Linear(dim_query, dim_query)
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, hidden_states):
         batch, query_n, query_dim = hidden_states.shape
 
-        query = self.qkv(hidden_states).view(batch, query_n, 3, self.num_heads, self.dim_inner // self.num_heads)
-        query = query.permute(2, 0, 3, 1, 4).reshape(3, batch * self.num_heads, query_n, self.dim_inner // self.num_heads)
+        query = self.qkv(hidden_states).view(batch, query_n, 3, self.num_heads, self.dim_head)
+        query = query.permute(2, 0, 3, 1, 4).reshape(3, batch * self.num_heads, self.dim_head)
         query, key, value = query.unbind(0)
 
         hidden_states = self._attention(query=query, key=key, value=value)
@@ -56,19 +55,18 @@ class SelfAttention(nn.Module):
 
 
 class CrossAttention(AttentionBase):
-    def __init__(self, dim_query, dim_inner, dim_cross=None, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
+    def __init__(self, dim_query, dim_cross=None, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
         super(CrossAttention, self).__init__()
-        dim_cross = dim_query if dim_cross is None else dim_cross
-        head_dim = dim_inner // num_heads
+        self.dim_query = dim_query
+        self.dim_head = dim_query // num_heads
         self.num_heads = num_heads
-        self.dim_inner = dim_inner
-        self.scale = head_dim ** -0.5
+        self.scale = self.dim_head ** -0.5
         self.upcast_attention = upcast_attention
         
-        self.q = nn.Linear(dim_query, dim_inner, bias=bias)
-        self.kv = nn.Linear(dim_cross, dim_inner * 2, bias=bias)
+        self.q = nn.Linear(dim_query, dim_query, bias=bias)
+        self.kv = nn.Linear(dim_cross, dim_query * 2, bias=bias)
 
-        self.out_proj = nn.Linear(dim_inner, dim_query)
+        self.out_proj = nn.Linear(dim_query, dim_query)
         self.dropout = nn.Dropout(p=dropout)
     
     def forward(self, hidden_states, context=None):
@@ -76,11 +74,11 @@ class CrossAttention(AttentionBase):
         batch, query_n, query_dim = hidden_states.shape
         _, context_n, context_dim = context.shape
 
-        query = self.q(hidden_states).view(batch, query_n, self.num_heads, self.dim_inner // self.num_heads)
-        query = query.permute(0, 2, 1, 3).reshape(batch * self.num_heads, query_n, self.dim_inner // self.num_heads)
+        query = self.q(hidden_states).view(batch, query_n, self.num_heads, self.dim_head)
+        query = query.permute(0, 2, 1, 3).reshape(batch * self.num_heads, query_n, self.dim_head)
 
-        kv = self.kv(context).view(batch, context_n, 2, self.num_heads, self.dim_inner // self.num_heads)
-        kv = kv.permute(2, 0, 3, 1, 4).reshape(2, batch * self.num_heads, query_n, self.dim_inner // self.num_heads)
+        kv = self.kv(context).view(batch, context_n, 2, self.num_heads, self.dim_head)
+        kv = kv.permute(2, 0, 3, 1, 4).reshape(2, batch * self.num_heads, query_n, self.dim_head)
         key, value = kv.unbind(0)
         
         hidden_states = self._attention(query=query, key=key, value=value)
@@ -103,8 +101,8 @@ class SelfAttention2D(SelfAttention):
         hidden_states = hidden_states.view(batch, height * width, query_dim).transpose(1, 2)
         query_n = height * width
 
-        query = self.qkv(hidden_states).view(batch, query_n, 3, self.num_heads, self.dim_inner // self.num_heads)
-        query = query.permute(2, 0, 3, 1, 4).reshape(3, batch * self.num_heads, query_n, self.dim_inner // self.num_heads)
+        query = self.qkv(hidden_states).view(batch, query_n, 3, self.num_heads, self.dim_head)
+        query = query.permute(2, 0, 3, 1, 4).reshape(3, batch * self.num_heads, query_n, self.dim_head)
         query, key, value = query.unbind(0)
 
         hidden_states = self._attention(query=query, key=key, value=value)
@@ -132,15 +130,15 @@ class CrossAttention2D(CrossAttention):
 
         _, context_n, context_dim = context.shape
 
-        query = self.q(hidden_states).view(batch, query_n, self.num_heads, self.dim_inner // self.num_heads)
-        query = query.permute(0, 2, 1, 3).reshape(batch * self.num_heads, query_n, self.dim_inner // self.num_heads)
+        query = self.q(hidden_states).view(batch, query_n, self.num_heads, self.dim_head)
+        query = query.permute(0, 2, 1, 3).reshape(batch * self.num_heads, self.dim_head)
 
-        kv = self.kv(context).view(batch, context_n, 2, self.num_heads, self.dim_inner // self.num_heads)
-        kv = kv.permute(2, 0, 3, 1, 4).reshape(2, batch * self.num_heads, query_n, self.dim_inner // self.num_heads)
+        kv = self.kv(context).view(batch, context_n, 2, self.num_heads, self.dim_head)
+        kv = kv.permute(2, 0, 3, 1, 4).reshape(2, batch * self.num_heads, query_n, self.dim_head)
         key, value = kv.unbind(0)
         
         hidden_states = self._attention(query=query, key=key, value=value)
-        retuhidden_states = self.dropout(self.out_proj(hidden_states))
+        hidden_states = self.dropout(self.out_proj(hidden_states))
         return hidden_states.transpose(1, 2).view(batch, query_dim, height, width)
 
 
