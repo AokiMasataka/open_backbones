@@ -13,7 +13,7 @@ class AttentionBase(nn.Module):
             query = query.float()
             key = key.float()
         
-        B, N, _ = query.shape
+        B, N, C = query.shape
         attention_scores = torch.baddbmm(
             torch.empty(query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device),
             query,
@@ -24,8 +24,8 @@ class AttentionBase(nn.Module):
 
         attention_probs = attention_scores.softmax(dim=2).to(value.dtype)
         hidden_states = torch.bmm(attention_probs, value)
-        hidden_states = hidden_states.view(B, N, self.num_heads, self.dim_query // self.num_heads)
-        hidden_states = hidden_states.permute(0, 2, 1, 3).reshape(B // self.num_heads, N, self.dim_query * self.num_heads)
+        hidden_states = hidden_states.view(B // self.num_heads, self.num_heads, N, C)
+        hidden_states = hidden_states.permute(0, 2, 1, 3).reshape(B // self.num_heads, N, C * self.num_heads)
         return hidden_states
 
 
@@ -47,7 +47,7 @@ class SelfAttention(AttentionBase):
         batch, query_n, query_dim = hidden_states.shape
 
         query = self.qkv(hidden_states).view(batch, query_n, 3, self.num_heads, self.dim_head)
-        query = query.permute(2, 0, 3, 1, 4).reshape(3, batch * self.num_heads, self.dim_head)
+        query = query.permute(2, 0, 3, 1, 4).reshape(3, batch * self.num_heads, query_n, self.dim_head)
         query, key, value = query.unbind(0)
 
         hidden_states = self._attention(query=query, key=key, value=value)
@@ -78,7 +78,7 @@ class CrossAttention(AttentionBase):
         query = query.permute(0, 2, 1, 3).reshape(batch * self.num_heads, query_n, self.dim_head)
 
         kv = self.kv(context).view(batch, context_n, 2, self.num_heads, self.dim_head)
-        kv = kv.permute(2, 0, 3, 1, 4).reshape(2, batch * self.num_heads, query_n, self.dim_head)
+        kv = kv.permute(2, 0, 3, 1, 4).reshape(2, batch * self.num_heads, context_n, self.dim_head)
         key, value = kv.unbind(0)
         
         hidden_states = self._attention(query=query, key=key, value=value)
