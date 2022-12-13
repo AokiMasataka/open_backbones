@@ -86,10 +86,9 @@ class CrossAttention(AttentionBase):
 
 
 class SelfAttention2D(SelfAttention):
-    def __init__(self, dim_query, dim_inner, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
+    def __init__(self, dim_query, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
         super(SelfAttention2D, self).__init__(
             dim_query=dim_query,
-            dim_inner=dim_inner,
             num_heads=num_heads,
             dropout=dropout,
             bias=bias,
@@ -111,10 +110,9 @@ class SelfAttention2D(SelfAttention):
 
 
 class CrossAttention2D(CrossAttention):
-    def __init__(self, dim_query, dim_inner, dim_cross=None, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
+    def __init__(self, dim_query, dim_cross=None, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
         super(CrossAttention2D, self).__init__(
             dim_query=dim_query,
-            dim_inner=dim_inner,
             dim_cross=dim_cross,
             num_heads=num_heads,
             dropout=dropout,
