@@ -115,27 +115,22 @@ class Bottleneck(nn.Module):
 class ResNet(BaseModule):
     def __init__(
         self,
-        block_type,
-        layers,
-        in_channels=3,
-        stem_width=64,
-        deep_stem=False,
-        channels=(64, 128, 256, 512),
-        avg_down=False,
-        out_indices=(0, 1, 2, 3, 4),
-        init_config=None,
-        act_config=None,
-        norm_config=None,
+        block_type: str,
+        layers: tuple,
+        channels: tuple = (64, 128, 256, 512),
+        in_channels: int = 3,
+        stem_width: int = 64,
+        deep_stem: bool = False,
+        avg_down: bool = False,
+        out_indices: tuple = (0, 1, 2, 3, 4),
+        act_config: dict = dict(type='ReLU', inaplce=True),
+        eps: float = 1e-5,
+        init_config: dict = None,
     ):
         super(ResNet, self).__init__(init_confg=init_config)
         assert isinstance(layers, (list, tuple))
 
         block_dict = {'BasicBlock': BasicBlock, 'Bottleneck': Bottleneck}
-        if act_config is None:
-            act_config = dict(type='ReLU', inaplce=True)
-        
-        if norm_config is None:
-            norm_config = dict(type='BatchNorm2d')
         
         self.block_type = block_type
         self.in_channels = in_channels
@@ -143,15 +138,14 @@ class ResNet(BaseModule):
         self.stem_width = stem_width
         self.out_indices = out_indices
         self.act_config = act_config
-        self.nrom_config = norm_config
 
         if deep_stem:
             self.conv1 = nn.Sequential(*[
                 nn.Conv2d(in_channels, stem_width, 3, stride=2, padding=1, bias=False),
-                nn.BatchNorm2d(stem_width),
+                nn.BatchNorm2d(stem_width, eps=eps),
                 build_activation(config=act_config),
                 nn.Conv2d(stem_width, stem_width, 3, stride=1, padding=1, bias=False),
-                nn.BatchNorm2d(stem_width),
+                nn.BatchNorm2d(stem_width, eps=eps),
                 build_activation(config=act_config),
                 nn.Conv2d(stem_width, stem_width, 3, stride=1, padding=1, bias=False)
             ])
@@ -189,7 +183,7 @@ class ResNet(BaseModule):
                     out_channels=channel,
                     stride=stride,
                     act_config=act_config,
-                    eps=1e-5,
+                    eps=eps,
                     hidden_dim_ratio=hidden_dim_ratio,
                     avg_down=avg_down
                 ))
