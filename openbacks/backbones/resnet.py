@@ -127,7 +127,7 @@ class ResNet(BaseModule):
         eps: float = 1e-5,
         init_config: dict = None,
     ):
-        super(ResNet, self).__init__(init_confg=init_config)
+        super(ResNet, self).__init__(init_config=init_config)
         assert isinstance(layers, (list, tuple))
 
         block_dict = {'BasicBlock': BasicBlock, 'Bottleneck': Bottleneck}
@@ -191,7 +191,7 @@ class ResNet(BaseModule):
             self.add_module(f'layer{layer + 1}', nn.Sequential(*block))
         
         self.blocks = (self.layer1, self.layer2, self.layer3, self.layer4)
-        self.init()
+        self._init(prefix='Backbone')
     
     def forward(self, x):
         x = self.stem(x)

@@ -1,184 +1,157 @@
+import math
 import torch
 from torch import nn
-from torch.nn import functional
 
 
-class AttentionBase(nn.Module):
-    def __init__(self):
-        super(AttentionBase, self).__init__()
-        pass
-    
-    def _attention(self, query, key, value):
-        if self.upcast_attention:
-            query = query.float()
-            key = key.float()
-        
-        B, N, C = query.shape
-        attention_scores = torch.baddbmm(
-            torch.empty(query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device),
-            query,
-            key.transpose(-1, -2),
-            beta=0,
-            alpha=self.scale,
-        )
+def relative_position_bucket(relative_position, num_buckets=32, max_distance=128):
+    relative_buckets = 0
 
-        attention_probs = attention_scores.softmax(dim=2).to(value.dtype)
-        hidden_states = torch.bmm(attention_probs, value)
-        hidden_states = hidden_states.view(B // self.num_heads, self.num_heads, N, C)
-        hidden_states = hidden_states.permute(0, 2, 1, 3).reshape(B // self.num_heads, N, C * self.num_heads)
-        return hidden_states
+    num_buckets //= 2
+    relative_buckets += (relative_position > 0).to(torch.long) * num_buckets
+    relative_position = torch.abs(relative_position)
+    # now relative_position is in the range [0, inf)
+
+    # half of the buckets are for exact increments in positions
+    max_exact = num_buckets // 2
+    is_small = relative_position < max_exact
+
+    # The other half of the buckets are for logarithmically bigger bins in positions up to max_distance
+    relative_position_if_large = torch.log(relative_position.float() / max_exact) / math.log(max_distance / max_exact)
+    relative_position_if_large = max_exact + (relative_position_if_large * (num_buckets - max_exact)).to(torch.long)
+    relative_position_if_large = torch.min(relative_position_if_large, torch.full_like(relative_position_if_large, num_buckets - 1))
+    relative_buckets += torch.where(is_small, relative_position, relative_position_if_large)
+    return relative_buckets
 
 
-class SelfAttention(AttentionBase):
-    def __init__(self, dim_query, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
-        super(SelfAttention, self).__init__()
-        self.dim_query = dim_query
-        self.dim_head = dim_query // num_heads
-        self.num_heads = num_heads
-        self.scale = self.dim_head ** -0.5
-        self.upcast_attention = upcast_attention
-        
-        self.qkv = nn.Linear(dim_query, dim_query * 3, bias=bias)
-
-        self.out_proj = nn.Linear(dim_query, dim_query)
-        self.dropout = nn.Dropout(p=dropout)
-
-    def forward(self, hidden_states):
-        batch, query_n, query_dim = hidden_states.shape
-
-        query = self.qkv(hidden_states).view(batch, query_n, 3, self.num_heads, self.dim_head)
-        query = query.permute(2, 0, 3, 1, 4).reshape(3, batch * self.num_heads, query_n, self.dim_head)
-        query, key, value = query.unbind(0)
-
-        hidden_states = self._attention(query=query, key=key, value=value)
-        return self.dropout(self.out_proj(hidden_states))
-
-
-class CrossAttention(AttentionBase):
-    def __init__(self, dim_query, dim_cross=None, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
-        super(CrossAttention, self).__init__()
-        self.dim_query = dim_query
-        self.dim_head = dim_query // num_heads
-        self.num_heads = num_heads
-        self.scale = self.dim_head ** -0.5
-        self.upcast_attention = upcast_attention
-        
-        self.q = nn.Linear(dim_query, dim_query, bias=bias)
-        self.kv = nn.Linear(dim_cross, dim_query * 2, bias=bias)
-
-        self.out_proj = nn.Linear(dim_query, dim_query)
-        self.dropout = nn.Dropout(p=dropout)
-    
-    def forward(self, hidden_states, context=None):
-        context = hidden_states if context is None else context
-        batch, query_n, query_dim = hidden_states.shape
-        _, context_n, context_dim = context.shape
-
-        query = self.q(hidden_states).view(batch, query_n, self.num_heads, self.dim_head)
-        query = query.permute(0, 2, 1, 3).reshape(batch * self.num_heads, query_n, self.dim_head)
-
-        kv = self.kv(context).view(batch, context_n, 2, self.num_heads, self.dim_head)
-        kv = kv.permute(2, 0, 3, 1, 4).reshape(2, batch * self.num_heads, context_n, self.dim_head)
-        key, value = kv.unbind(0)
-        
-        hidden_states = self._attention(query=query, key=key, value=value)
-        return self.dropout(self.out_proj(hidden_states))
-
-
-class SelfAttention2D(SelfAttention):
-    def __init__(self, dim_query, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
-        super(SelfAttention2D, self).__init__(
-            dim_query=dim_query,
-            num_heads=num_heads,
-            dropout=dropout,
-            bias=bias,
-            upcast_attention=upcast_attention
-        )
-    
-    def forward(self, hidden_states):
-        batch, query_dim, height, width = hidden_states.shape
-        hidden_states = hidden_states.view(batch, height * width, query_dim).transpose(1, 2)
-        query_n = height * width
-
-        query = self.qkv(hidden_states).view(batch, query_n, 3, self.num_heads, self.dim_head)
-        query = query.permute(2, 0, 3, 1, 4).reshape(3, batch * self.num_heads, query_n, self.dim_head)
-        query, key, value = query.unbind(0)
-
-        hidden_states = self._attention(query=query, key=key, value=value)
-        hidden_states = self.dropout(self.out_proj(hidden_states))
-        return hidden_states.transpose(1, 2).view(batch, query_dim, height, width)
-
-
-class CrossAttention2D(CrossAttention):
-    def __init__(self, dim_query, dim_cross=None, num_heads=8, dropout=0.0, bias=False, upcast_attention=False):
-        super(CrossAttention2D, self).__init__(
-            dim_query=dim_query,
-            dim_cross=dim_cross,
-            num_heads=num_heads,
-            dropout=dropout,
-            bias=bias,
-            upcast_attention=upcast_attention
-        )
-    
-    def forward(self, hidden_states, context=None):
-        context = hidden_states if context is None else context
-        batch, query_dim, height, width = hidden_states.shape
-        hidden_states = hidden_states.view(batch, height * width, query_dim).transpose(1, 2)
-        query_n = height * width
-
-        _, context_n, context_dim = context.shape
-
-        query = self.q(hidden_states).view(batch, query_n, self.num_heads, self.dim_head)
-        query = query.permute(0, 2, 1, 3).reshape(batch * self.num_heads, self.dim_head)
-
-        kv = self.kv(context).view(batch, context_n, 2, self.num_heads, self.dim_head)
-        kv = kv.permute(2, 0, 3, 1, 4).reshape(2, batch * self.num_heads, query_n, self.dim_head)
-        key, value = kv.unbind(0)
-        
-        hidden_states = self._attention(query=query, key=key, value=value)
-        hidden_states = self.dropout(self.out_proj(hidden_states))
-        return hidden_states.transpose(1, 2).view(batch, query_dim, height, width)
-
-
-class FeedForward(nn.Module):
+class SelfAttention(nn.Module):
     def __init__(
         self,
-        dim: int,
-        dim_out: int = None,
-        mult: int = 4,
+        embed_dim: int,
+        num_heads: int,
+        qkv_bias: bool = False,
+        relative_pos_bias: bool = True, 
+        relative_attention_num_buckets: int = 32,
+        relative_attention_max_distance: int = 128,
         dropout: float = 0.0,
-        activation_fn: str = 'geglu',
     ):
-        super(FeedForward, self).__init__()
-        inner_dim = int(dim * mult)
-        dim_out = dim_out if dim_out is not None else dim
+        super(SelfAttention, self).__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.relative_pos_bias = relative_pos_bias 
+        self.relative_attention_num_buckets = relative_attention_num_buckets
+        self.relative_attention_max_distance = relative_attention_max_distance
+        self.dropout = dropout
+        self.key_value_proj_dim = embed_dim // num_heads
 
-        act_fns = {'gelu': GELU, 'geglu': GEGLU}
+        self.qkv = nn.Linear(in_features=embed_dim, out_features=embed_dim * 3, bias=qkv_bias)
+        self.out = nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=False)
 
-        self.body = nn.Sequential(
-            act_fns[activation_fn](dim, inner_dim),
-            nn.Dropout(dropout),
-            nn.Linear(inner_dim, dim_out)
+        self.relative_attention_bias = nn.Embedding(relative_attention_num_buckets, num_heads)
+    
+    def compute_bias(self, query_length, key_length, device=None):
+        context_position = torch.arange(query_length, dtype=torch.long, device=device).unsqueeze(1)
+        memory_position = torch.arange(key_length, dtype=torch.long, device=device).unsqueeze(0)
+        relative_position = memory_position - context_position  # shape (query_length, key_length)
+        relative_position = relative_position_bucket(
+            relative_position,  # shape (query_length, key_length)
+            num_buckets=self.relative_attention_num_buckets,
+            max_distance=self.relative_attention_max_distance,
         )
-
+        values = self.relative_attention_bias(relative_position)  # shape (query_length, key_length, num_heads)
+        values = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
+        return values
+    
     def forward(self, hidden_states):
-        return self.body(hidden_states)
+        batch_size, seq_length, _ = hidden_states.shape
+
+        query_key_value_states = self.qkv(hidden_states).view(batch_size, seq_length, 3, self.num_heads, self.key_value_proj_dim)
+        query_states, key_states, value_states = query_key_value_states.transpose(1, 3).unbind(2)
+
+        scores = torch.matmul(query_states, key_states.transpose(3, 2))
+
+        if self.relative_pos_bias:
+            position_bias = self.compute_bias(seq_length, seq_length, device=scores.device)
+            scores = scores + position_bias
+        attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)  # (batch_size, n_heads, seq_length, key_length)
+        attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
+
+        attn_output = torch.matmul(attn_weights, value_states).transpose(1, 2).contiguous().view(batch_size, -1, self.embed_dim)  # (batch_size, seq_length, dim)
+        attn_output = self.out(attn_output)
+        return attn_output
 
 
-class GELU(nn.Module):
-    def __init__(self, dim_in: int, dim_out: int):
-        super().__init__()
-        self.proj = nn.Linear(dim_in, dim_out)
+class CrossAttention(nn.Module):
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        cross_dim: int = None,
+        qkv_bias: bool = False,
+        relative_pos_bias: bool = True, 
+        relative_attention_num_buckets: int = 32,
+        relative_attention_max_distance: int = 128,
+        dropout: float = 0.0,
+    ):
+        super(CrossAttention, self).__init__()
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.cross_dim = embed_dim if cross_dim is None else cross_dim
+        self.relative_pos_bias = relative_pos_bias
+        self.relative_attention_num_buckets = relative_attention_num_buckets
+        self.relative_attention_max_distance = relative_attention_max_distance
+        self.dropout = dropout
+        self.key_value_proj_dim = embed_dim // num_heads
 
-    def forward(self, hidden_states):
-        return functional.gelu(self.proj(hidden_states))
+        self.q = nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=qkv_bias)
+        self.kv = nn.Linear(in_features=cross_dim, out_features=embed_dim * 2, bias=qkv_bias)
+        self.out = nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=False)
+
+        self.relative_attention_bias = nn.Embedding(relative_attention_num_buckets, num_heads)
+    
+    def compute_bias(self, query_length, key_length, device=None):
+        context_position = torch.arange(query_length, dtype=torch.long, device=device).unsqueeze(1)
+        memory_position = torch.arange(key_length, dtype=torch.long, device=device).unsqueeze(0)
+        relative_position = memory_position - context_position  # shape (query_length, key_length)
+        relative_position = relative_position_bucket(
+            relative_position,  # shape (query_length, key_length)
+            num_buckets=self.relative_attention_num_buckets,
+            max_distance=self.relative_attention_max_distance,
+        )
+        values = self.relative_attention_bias(relative_position)  # shape (query_length, key_length, num_heads)
+        values = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
+        return values
+    
+    def forward(self, hidden_states, key_value_states):
+        batch_size, seq_length, _ = hidden_states.shape
+        key_length =  key_value_states.shape[1]
+
+        query_states = self.q(hidden_states).view(batch_size, seq_length, self.num_heads, self.key_value_proj_dim).transpose(1, 2)
+        key_value_states = self.kv(key_value_states).view(batch_size, key_length, 2, self.num_heads, self.key_value_proj_dim)
+        key_states, value_states = key_value_states.transpose(1, 3).unbind(2)
+
+        scores = torch.matmul(query_states, key_states.transpose(3, 2))
+
+        if self.relative_pos_bias:
+            position_bias = self.compute_bias(seq_length, key_length, device=scores.device)
+            scores = scores + position_bias
+        attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)  # (batch_size, n_heads, seq_length, key_length)
+        attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
+
+        attn_output = torch.matmul(attn_weights, value_states).transpose(1, 2).contiguous().view(batch_size, -1, self.embed_dim)  # (batch_size, seq_length, dim)
+        attn_output = self.out(attn_output)
+        return attn_output
 
 
-class GEGLU(nn.Module):
-    def __init__(self, dim_in: int, dim_out: int):
-        super().__init__()
-        self.proj = nn.Linear(dim_in, dim_out * 2)
-
-    def forward(self, hidden_states):
-        hidden_states, gate = self.proj(hidden_states).chunk(2, dim=-1)
-        return hidden_states * functional.gelu(gate)
+class FeedForward(nn.Sequential):
+    def __init__(self, input_dim: int, output_dim: int = None, ffn_dim: int = None, dropout: float = 0.0, activation_fn: str = 'gelu'):
+        acts = {'gelu': nn.GELU, 'relu': nn.ReLU}
+        assert activation_fn in acts.keys()
+        output_dim = input_dim if output_dim is None else output_dim
+        ffn_dim = output_dim if ffn_dim is None else ffn_dim
+        self.output_dim = output_dim
+        super(FeedForward, self).__init__(
+            nn.Linear(in_features=input_dim, out_features=ffn_dim),
+            acts[activation_fn](),
+            nn.Dropout(p=dropout),
+            nn.Linear(in_features=ffn_dim, out_features=output_dim),
+        )

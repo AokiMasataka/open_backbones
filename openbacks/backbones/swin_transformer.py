@@ -351,7 +351,7 @@ class SwinTransformer(BaseModule):
             drop_path_rate=0.1,
             act_config=None,
             init_config=None):
-        super(SwinTransformer, self).__init__(init_confg=init_config)
+        super(SwinTransformer, self).__init__(init_config=init_config)
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
         self.num_features = int(embed_dim * 2 ** (self.num_layers - 1))
@@ -387,7 +387,7 @@ class SwinTransformer(BaseModule):
                 act_config=act_config
             )]
         self.layers = nn.Sequential(*layers)
-        self.init()
+        self._init(prefix='Backbone')
     
     def forward(self, x):
         x = self.patch_embed(x)

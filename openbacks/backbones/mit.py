@@ -7,7 +7,14 @@ from ..builder import BACKBONES
 
 
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.0):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int = None,
+        out_features: int = None,
+        act_layer: nn.Module = nn.GELU,
+        drop: float = 0.0
+    ):
         super(Mlp, self).__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -45,25 +52,35 @@ class Mlp(nn.Module):
 
 
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0.0, proj_drop=0.0, sr_ratio=1):
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int = 8,
+        qkv_bias: bool = False,
+        qk_scale: int = None,
+        attn_drop: float = 0.0,
+        proj_drop: float = 0.0,
+        sr_ratio: int = 1,
+        eps: float = 1e-5,
+    ):
         super(Attention, self).__init__()
-        assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
+        assert embed_dim % num_heads == 0, f"dim {embed_dim} should be divided by num_heads {num_heads}."
 
-        self.dim = dim
+        self.embed_dim = embed_dim
         self.num_heads = num_heads
-        head_dim = dim // num_heads
+        head_dim = embed_dim // num_heads
         self.scale = qk_scale or head_dim**-0.5
 
-        self.q = nn.Linear(dim, dim, bias=qkv_bias)
-        self.kv = nn.Linear(dim, dim * 2, bias=qkv_bias)
+        self.q = nn.Linear(embed_dim, embed_dim, bias=qkv_bias)
+        self.kv = nn.Linear(embed_dim, embed_dim * 2, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
+        self.proj = nn.Linear(embed_dim, embed_dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
         self.sr_ratio = sr_ratio
         if sr_ratio > 1:
-            self.sr = nn.Conv2d(dim, dim, kernel_size=(sr_ratio, sr_ratio), stride=(sr_ratio, sr_ratio))
-            self.norm = nn.LayerNorm(dim)
+            self.sr = nn.Conv2d(embed_dim, embed_dim, kernel_size=(sr_ratio, sr_ratio), stride=(sr_ratio, sr_ratio))
+            self.norm = nn.LayerNorm(embed_dim, eps=eps)
 
         self.apply(self._init_weights)
 
@@ -109,34 +126,36 @@ class Attention(nn.Module):
 class Block(nn.Module):
     def __init__(
         self,
-        dim,
-        num_heads,
-        mlp_ratio=4.0,
-        qkv_bias=False,
-        qk_scale=None,
-        drop=0.0,
-        attn_drop=0.0,
-        drop_path=0.0,
-        act_layer=nn.GELU,
-        norm_layer=nn.LayerNorm,
-        sr_ratio=1,
+        embed_dim: int,
+        num_heads: int,
+        mlp_ratio: float = 4.0,
+        qkv_bias: bool = False,
+        qk_scale: int = None,
+        drop: float = 0.0,
+        attn_drop: float = 0.0,
+        drop_path: float = 0.0,
+        act_layer: nn.Module = nn.GELU,
+        norm_layer: nn.Module = nn.LayerNorm,
+        sr_ratio: int = 1,
+        eps: float = 1e-5,
     ):
         super(Block, self).__init__()
-        self.norm1 = norm_layer(dim)
+        self.norm1 = norm_layer(embed_dim, eps=eps)
         self.attn = Attention(
-            dim,
+            embed_dim=embed_dim,
             num_heads=num_heads,
             qkv_bias=qkv_bias,
             qk_scale=qk_scale,
             attn_drop=attn_drop,
             proj_drop=drop,
             sr_ratio=sr_ratio,
+            eps=eps
         )
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        self.norm2 = norm_layer(dim)
-        mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.norm2 = norm_layer(embed_dim, eps=eps)
+        mlp_hidden_dim = int(embed_dim * mlp_ratio)
+        self.mlp = Mlp(in_features=embed_dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
         self.apply(self._init_weights)
 
@@ -164,7 +183,15 @@ class Block(nn.Module):
 class OverlapPatchEmbed(nn.Module):
     """Image to Patch Embedding"""
 
-    def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, embed_dim=768):
+    def __init__(
+        self,
+        img_size: int = 224,
+        patch_size: int = 7,
+        stride: int = 4,
+        in_chans: int = 3,
+        embed_dim: int = 768,
+        eps: float = 1e-5
+    ):
         super(OverlapPatchEmbed, self).__init__()
         img_size = (img_size, img_size)
         patch_size = (patch_size, patch_size)
@@ -181,7 +208,7 @@ class OverlapPatchEmbed(nn.Module):
             stride=stride,
             padding=(patch_size[0] // 2, patch_size[1] // 2),
         )
-        self.norm = nn.LayerNorm(embed_dim)
+        self.norm = nn.LayerNorm(embed_dim, eps=eps)
 
         self.apply(self._init_weights)
 
@@ -226,23 +253,24 @@ class MixVisionTransformer(BaseModule):
         norm_layer=nn.LayerNorm,
         depths=(3, 4, 6, 3),
         sr_ratios=(8, 4, 2, 1),
+        eps=1e-5,
         init_config=None
     ):
-        super(MixVisionTransformer, self).__init__(init_confg=init_config)
+        super(MixVisionTransformer, self).__init__(init_config=init_config)
         self.depths = depths
 
         # patch_embed
         self.patch_embed1 = OverlapPatchEmbed(
-            img_size=img_size, patch_size=7, stride=4, in_chans=in_chans, embed_dim=embed_dims[0]
+            img_size=img_size, patch_size=7, stride=4, in_chans=in_chans, embed_dim=embed_dims[0], eps=eps
         )
         self.patch_embed2 = OverlapPatchEmbed(
-            img_size=img_size // 4, patch_size=3, stride=2, in_chans=embed_dims[0], embed_dim=embed_dims[1]
+            img_size=img_size // 4, patch_size=3, stride=2, in_chans=embed_dims[0], embed_dim=embed_dims[1], eps=eps
         )
         self.patch_embed3 = OverlapPatchEmbed(
-            img_size=img_size // 8, patch_size=3, stride=2, in_chans=embed_dims[1], embed_dim=embed_dims[2]
+            img_size=img_size // 8, patch_size=3, stride=2, in_chans=embed_dims[1], embed_dim=embed_dims[2], eps=eps
         )
         self.patch_embed4 = OverlapPatchEmbed(
-            img_size=img_size // 16, patch_size=3, stride=2, in_chans=embed_dims[2], embed_dim=embed_dims[3]
+            img_size=img_size // 16, patch_size=3, stride=2, in_chans=embed_dims[2], embed_dim=embed_dims[3], eps=eps
         )
 
         # transformer encoder
@@ -251,7 +279,7 @@ class MixVisionTransformer(BaseModule):
         self.block1 = nn.ModuleList(
             [
                 Block(
-                    dim=embed_dims[0],
+                    embed_dim=embed_dims[0],
                     num_heads=num_heads[0],
                     mlp_ratio=mlp_ratios[0],
                     qkv_bias=qkv_bias,
@@ -261,6 +289,7 @@ class MixVisionTransformer(BaseModule):
                     drop_path=dpr[cur + i],
                     norm_layer=norm_layer,
                     sr_ratio=sr_ratios[0],
+                    eps=eps
                 )
                 for i in range(depths[0])
             ]
@@ -271,7 +300,7 @@ class MixVisionTransformer(BaseModule):
         self.block2 = nn.ModuleList(
             [
                 Block(
-                    dim=embed_dims[1],
+                    embed_dim=embed_dims[1],
                     num_heads=num_heads[1],
                     mlp_ratio=mlp_ratios[1],
                     qkv_bias=qkv_bias,
@@ -281,6 +310,7 @@ class MixVisionTransformer(BaseModule):
                     drop_path=dpr[cur + i],
                     norm_layer=norm_layer,
                     sr_ratio=sr_ratios[1],
+                    eps=eps
                 )
                 for i in range(depths[1])
             ]
@@ -291,7 +321,7 @@ class MixVisionTransformer(BaseModule):
         self.block3 = nn.ModuleList(
             [
                 Block(
-                    dim=embed_dims[2],
+                    embed_dim=embed_dims[2],
                     num_heads=num_heads[2],
                     mlp_ratio=mlp_ratios[2],
                     qkv_bias=qkv_bias,
@@ -301,6 +331,7 @@ class MixVisionTransformer(BaseModule):
                     drop_path=dpr[cur + i],
                     norm_layer=norm_layer,
                     sr_ratio=sr_ratios[2],
+                    eps=eps
                 )
                 for i in range(depths[2])
             ]
@@ -311,7 +342,7 @@ class MixVisionTransformer(BaseModule):
         self.block4 = nn.ModuleList(
             [
                 Block(
-                    dim=embed_dims[3],
+                    embed_dim=embed_dims[3],
                     num_heads=num_heads[3],
                     mlp_ratio=mlp_ratios[3],
                     qkv_bias=qkv_bias,
@@ -321,6 +352,7 @@ class MixVisionTransformer(BaseModule):
                     drop_path=dpr[cur + i],
                     norm_layer=norm_layer,
                     sr_ratio=sr_ratios[3],
+                    eps=eps
                 )
                 for i in range(depths[3])
             ]
@@ -328,7 +360,7 @@ class MixVisionTransformer(BaseModule):
         self.norm4 = norm_layer(embed_dims[3])
 
         self.apply(self._init_weights)
-        self.init()
+        self._init(prefix='Backbone')
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -391,7 +423,7 @@ class MixVisionTransformer(BaseModule):
 
 
 class DWConv(nn.Module):
-    def __init__(self, dim=768):
+    def __init__(self, dim: int = 768):
         super(DWConv, self).__init__()
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=True, groups=dim)
 

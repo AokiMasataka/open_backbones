@@ -1,4 +1,4 @@
-from .attention import SelfAttention, CrossAttention, SelfAttention2D, CrossAttention2D, FeedForward
+from .attention import SelfAttention, CrossAttention, FeedForward
 from .conv import Conv
 from .drop_layer import DropPath
 from .mlp import Mlp
