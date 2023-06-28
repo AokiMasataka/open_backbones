@@ -1,6 +1,8 @@
 import math
+import numpy
 import torch
-from torch import nn
+from torch import nn, Tensor
+from torch.nn import functional
 
 
 def relative_position_bucket(relative_position, num_buckets=32, max_distance=128):
@@ -23,31 +25,22 @@ def relative_position_bucket(relative_position, num_buckets=32, max_distance=128
     return relative_buckets
 
 
-class SelfAttention(nn.Module):
+class BaseAttention(nn.Module):
     def __init__(
         self,
-        embed_dim: int,
         num_heads: int,
-        qkv_bias: bool = False,
-        relative_pos_bias: bool = True, 
+        relative_pos_bias: bool = False,
         relative_attention_num_buckets: int = 32,
         relative_attention_max_distance: int = 128,
-        dropout: float = 0.0,
     ):
-        super(SelfAttention, self).__init__()
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.relative_pos_bias = relative_pos_bias 
+        super(BaseAttention, self).__init__()
+        self.relative_pos_bias = relative_pos_bias
         self.relative_attention_num_buckets = relative_attention_num_buckets
         self.relative_attention_max_distance = relative_attention_max_distance
-        self.dropout = dropout
-        self.key_value_proj_dim = embed_dim // num_heads
 
-        self.qkv = nn.Linear(in_features=embed_dim, out_features=embed_dim * 3, bias=qkv_bias)
-        self.out = nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=False)
+        if relative_pos_bias:
+            self.relative_attention_bias = nn.Embedding(relative_attention_num_buckets, num_heads)
 
-        self.relative_attention_bias = nn.Embedding(relative_attention_num_buckets, num_heads)
-    
     def compute_bias(self, query_length, key_length, device=None):
         context_position = torch.arange(query_length, dtype=torch.long, device=device).unsqueeze(1)
         memory_position = torch.arange(key_length, dtype=torch.long, device=device).unsqueeze(0)
@@ -60,27 +53,52 @@ class SelfAttention(nn.Module):
         values = self.relative_attention_bias(relative_position)  # shape (query_length, key_length, num_heads)
         values = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
         return values
-    
-    def forward(self, hidden_states):
-        batch_size, seq_length, _ = hidden_states.shape
 
-        query_key_value_states = self.qkv(hidden_states).view(batch_size, seq_length, 3, self.num_heads, self.key_value_proj_dim)
-        query_states, key_states, value_states = query_key_value_states.transpose(1, 3).unbind(2)
 
-        scores = torch.matmul(query_states, key_states.transpose(3, 2))
+class SelfAttention(BaseAttention):
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int,
+        qkv_bias: bool = False,
+        relative_pos_bias: bool = True, 
+        relative_attention_num_buckets: int = 32,
+        relative_attention_max_distance: int = 128,
+        dropout: float = 0.0,
+    ) -> None:
+        super(SelfAttention, self).__init__(
+            num_heads=num_heads,
+            relative_pos_bias=relative_pos_bias,
+            relative_attention_num_buckets=relative_attention_num_buckets,
+            relative_attention_max_distance=relative_attention_max_distance,
+        )
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.dropout = dropout
+        self.head_dim = embed_dim // num_heads
+
+        self.qkv = nn.Linear(in_features=embed_dim, out_features=embed_dim * 3, bias=qkv_bias)
+        self.proj = nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=False)
+
+    def forward(self, hidden_states: Tensor, attn_mask: Tensor = None) -> Tensor:
+        B, N, C = hidden_states.shape
+        qkv = self.qkv(hidden_states).view(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+
+        x = functional.scaled_dot_product_attention(
+            query=q, key=k, value=v, attn_mask=attn_mask, dropout_p=self.dropout, is_causal=False
+        )
 
         if self.relative_pos_bias:
-            position_bias = self.compute_bias(seq_length, seq_length, device=scores.device)
-            scores = scores + position_bias
-        attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)  # (batch_size, n_heads, seq_length, key_length)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
+            position_bias = self.compute_bias(N, N, device=x.device)
+            x = x + position_bias
 
-        attn_output = torch.matmul(attn_weights, value_states).transpose(1, 2).contiguous().view(batch_size, -1, self.embed_dim)  # (batch_size, seq_length, dim)
-        attn_output = self.out(attn_output)
-        return attn_output
+        x = x.transpose(1, 2).contiguous().view(B, N, C)
+        x = self.proj(x)
+        return x
 
 
-class CrossAttention(nn.Module):
+class CrossAttention(BaseAttention):
     def __init__(
         self,
         embed_dim: int,
@@ -91,55 +109,44 @@ class CrossAttention(nn.Module):
         relative_attention_num_buckets: int = 32,
         relative_attention_max_distance: int = 128,
         dropout: float = 0.0,
-    ):
-        super(CrossAttention, self).__init__()
+    ) -> None:
+        super(CrossAttention, self).__init__(
+            num_heads=num_heads,
+            relative_pos_bias=relative_pos_bias,
+            relative_attention_num_buckets=relative_attention_num_buckets,
+            relative_attention_max_distance=relative_attention_max_distance,
+        )
         self.embed_dim = embed_dim
-        self.num_heads = num_heads
         self.cross_dim = embed_dim if cross_dim is None else cross_dim
-        self.relative_pos_bias = relative_pos_bias
-        self.relative_attention_num_buckets = relative_attention_num_buckets
-        self.relative_attention_max_distance = relative_attention_max_distance
+        self.num_heads = num_heads
         self.dropout = dropout
-        self.key_value_proj_dim = embed_dim // num_heads
+        self.head_dim = embed_dim // num_heads
 
         self.q = nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=qkv_bias)
-        self.kv = nn.Linear(in_features=cross_dim, out_features=embed_dim * 2, bias=qkv_bias)
-        self.out = nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=False)
-
-        self.relative_attention_bias = nn.Embedding(relative_attention_num_buckets, num_heads)
+        self.kv = nn.Linear(in_features=self.cross_dim, out_features=embed_dim * 2, bias=qkv_bias)
+        self.proj = nn.Linear(in_features=embed_dim, out_features=embed_dim, bias=False)
     
-    def compute_bias(self, query_length, key_length, device=None):
-        context_position = torch.arange(query_length, dtype=torch.long, device=device).unsqueeze(1)
-        memory_position = torch.arange(key_length, dtype=torch.long, device=device).unsqueeze(0)
-        relative_position = memory_position - context_position  # shape (query_length, key_length)
-        relative_position = relative_position_bucket(
-            relative_position,  # shape (query_length, key_length)
-            num_buckets=self.relative_attention_num_buckets,
-            max_distance=self.relative_attention_max_distance,
+    def forward(self, hidden_states: Tensor, context: Tensor, attn_mask: Tensor = None) -> Tensor:
+        B, N, C = hidden_states.shape
+        _, context_N, _ = context.shape
+
+        q = self.q(hidden_states).view(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
+
+        kv = self.kv(context).view(B, context_N, 2, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        k, v = kv.unbind(0)
+
+        x = functional.scaled_dot_product_attention(
+            query=q, key=k, value=v, attn_mask=attn_mask, dropout_p=self.dropout, is_causal=False
         )
-        values = self.relative_attention_bias(relative_position)  # shape (query_length, key_length, num_heads)
-        values = values.permute([2, 0, 1]).unsqueeze(0)  # shape (1, num_heads, query_length, key_length)
-        return values
-    
-    def forward(self, hidden_states, key_value_states):
-        batch_size, seq_length, _ = hidden_states.shape
-        key_length =  key_value_states.shape[1]
-
-        query_states = self.q(hidden_states).view(batch_size, seq_length, self.num_heads, self.key_value_proj_dim).transpose(1, 2)
-        key_value_states = self.kv(key_value_states).view(batch_size, key_length, 2, self.num_heads, self.key_value_proj_dim)
-        key_states, value_states = key_value_states.transpose(1, 3).unbind(2)
-
-        scores = torch.matmul(query_states, key_states.transpose(3, 2))
 
         if self.relative_pos_bias:
-            position_bias = self.compute_bias(seq_length, key_length, device=scores.device)
-            scores = scores + position_bias
-        attn_weights = nn.functional.softmax(scores.float(), dim=-1).type_as(scores)  # (batch_size, n_heads, seq_length, key_length)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
+            position_bias = self.compute_bias(N, N, device=x.device)
+            x = x + position_bias
 
-        attn_output = torch.matmul(attn_weights, value_states).transpose(1, 2).contiguous().view(batch_size, -1, self.embed_dim)  # (batch_size, seq_length, dim)
-        attn_output = self.out(attn_output)
-        return attn_output
+        x = x.transpose(1, 2).contiguous().view(B, N, C)
+        x = self.proj(x)
+        return x
+
 
 
 class FeedForward(nn.Sequential):
