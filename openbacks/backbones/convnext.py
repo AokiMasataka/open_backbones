@@ -161,7 +161,7 @@ class ConvNeXt(BaseModule):
             act_config=None,
             init_config=None,
     ):
-        super(ConvNeXt, self).__init__(init_confg=init_config)
+        super(ConvNeXt, self).__init__(init_config=init_config)
         assert output_stride in (8, 16, 32)
 
         self.out_indices = out_indices
@@ -182,7 +182,7 @@ class ConvNeXt(BaseModule):
         curr_stride = stem_stride
         dilation = 1
         # 4 feature resolution stages, each consisting of multiple residual blocks
-        for i in range(4):
+        for i in range(depths.__len__()):
             stride = 2 if curr_stride == 2 or i > 0 else 1
             if curr_stride >= output_stride and stride > 1:
                 dilation *= stride
@@ -209,7 +209,7 @@ class ConvNeXt(BaseModule):
         self.stages = nn.Sequential(*stages)
         self.num_features = prev_chs
 
-        self.init(checkpoint_filter_fn=checkpoint_filter_fn)
+        self._init(prefix='Backbone', checkpoint_filter_fn=checkpoint_filter_fn)
     
     def forward(self, x):
         x = self.stem(x)
