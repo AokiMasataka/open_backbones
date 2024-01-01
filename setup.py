@@ -1,21 +1,22 @@
-from setuptools import setup, find_packages
-from openbacks import __version__
+from setuptools import setup
+from setuptools import find_packages
+
+from openback import __version__
 
 
-NAME = 'openbacks'
-VERSION = __version__,
-REQUIRES_PYTHON = '>=3.10.0'
+NAME = 'openback'
+VERSION = __version__
 
 
-def requirements_from_file(file_name):
-    return open(file_name).read().splitlines()
+def _requires_from_file(filename):
+    return open(filename).read().splitlines()
 
 
-print(VERSION)
 setup(
     name=NAME,
-    version="0.0.1",
-    python_requires=REQUIRES_PYTHON,
+    version=VERSION,
     packages=find_packages(),
-    install_requires=requirements_from_file('requirements.txt'),
+    include_package_data=True,
+    zip_safe=False,
+    install_requires=_requires_from_file('./requirements.txt'),
 )

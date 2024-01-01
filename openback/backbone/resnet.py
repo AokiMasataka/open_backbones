@@ -1,11 +1,21 @@
-from torch import nn
-from ..layers import SEModule
-from ..utils import BaseModule, build_activation
+from torch import nn, Tensor
+from .base import BaseBackBone
+from ..layer import SEModule, build_activation
+from ..utils import BaseModule
 from ..builder import BACKBONES
 
 
 class BasicBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1, act_config=None, eps=1e-5, hidden_dim_ratio=None, avg_down=False):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        stride: int = 1,
+        act_config: dict = None,
+        eps: float = 1e-5,
+        hidden_dim_ratio: float = None,
+        avg_down: bool = False
+    ) -> None:
         super(BasicBlock, self).__init__()
         if act_config is None:
             act_config = dict(type='ReLU', inaplce=True)
@@ -33,7 +43,7 @@ class BasicBlock(nn.Module):
                     nn.BatchNorm2d(num_features=out_channels, eps=eps)
                 )
     
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         shortcut = x
 
         x = self.conv1(x)
@@ -52,7 +62,16 @@ class BasicBlock(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    def __init__(self, in_channels, out_channels, stride=1, act_config=None, eps=1e-5, hidden_dim_ratio=1, avg_down=False):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        stride: int = 1,
+        act_config: dict = None,
+        eps: float = 1e-5,
+        hidden_dim_ratio: float = 1,
+        avg_down: bool = False
+    ) -> None:
         super(Bottleneck, self).__init__()
         if act_config is None:
             act_config = dict(type='ReLU', inaplce=True)
@@ -87,7 +106,7 @@ class Bottleneck(nn.Module):
                     nn.BatchNorm2d(num_features=out_channels, eps=eps)
                 )
     
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         shortcut = x
 
         x = self.conv1(x)
@@ -112,7 +131,7 @@ class Bottleneck(nn.Module):
 
 
 @BACKBONES.register_module
-class ResNet(BaseModule):
+class ResNet(BaseBackBone):
     def __init__(
         self,
         block_type: str,
@@ -126,8 +145,9 @@ class ResNet(BaseModule):
         act_config: dict = dict(type='ReLU', inaplce=True),
         eps: float = 1e-5,
         init_config: dict = None,
-    ):
-        super(ResNet, self).__init__(init_config=init_config)
+        norm_conifg: dict = None
+    ) -> None:
+        super(ResNet, self).__init__(init_config=init_config, norm_config=norm_conifg)
         assert isinstance(layers, (list, tuple))
 
         block_dict = {'BasicBlock': BasicBlock, 'Bottleneck': Bottleneck}
@@ -193,10 +213,11 @@ class ResNet(BaseModule):
         self.blocks = (self.layer1, self.layer2, self.layer3, self.layer4)
         self._init(prefix='Backbone')
     
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.norm(x=x)
         x = self.stem(x)
         
-        feats = [x] if 0 in self.out_indices else list()
+        feats = [x] if 0 in self.out_indices else []
 
         for index, block in enumerate(self.blocks, 1):
             x = block(x)
@@ -204,7 +225,7 @@ class ResNet(BaseModule):
                 feats.append(x)
         return feats
 
-    def stem(self, x):
+    def stem(self, x: Tensor) -> Tensor:
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.act1(x)
