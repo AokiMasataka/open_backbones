@@ -1,5 +1,5 @@
 import torch
-from openbacks.layers.attention import SelfAttention, CrossAttention
+from openback.layer.attention import SelfAttention, CrossAttention
 
 
 

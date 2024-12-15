@@ -8,5 +8,6 @@ backbone=dict(
     sr_ratios=[8, 4, 2, 1],
     drop_rate=0.0,
     drop_path_rate=0.1,
-    init_config=dict(pretrained='https://github.com/qubvel/segmentation_models.pytorch/releases/download/v0.0.2/mit_b0.pth')
+    init_config=dict(pretrained='https://github.com/qubvel/segmentation_models.pytorch/releases/download/v0.0.2/mit_b0.pth'),
+	norm_config=dict(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225), div=255.0)
 ),
