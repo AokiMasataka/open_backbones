@@ -9,7 +9,7 @@ VERSION = __version__
 
 
 def _requires_from_file(filename):
-    return open(filename).read().splitlines()
+    return open(filename, encoding='UTF-8').read().splitlines()
 
 
 setup(
