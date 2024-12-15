@@ -12,7 +12,7 @@ class BaseModule(nn.Module):
 		super().__init__()
 		self.init_config = init_config
 	
-	def _init(self, prefix: str) -> None:
+	def init(self, prefix: str) -> None:
 		if self.init_config is not None:
 			self._load_pretrained(prefix=prefix)
 

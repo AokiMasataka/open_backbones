@@ -145,9 +145,9 @@ class ResNet(BaseBackBone):
         act_config: dict = dict(type='ReLU', inaplce=True),
         eps: float = 1e-5,
         init_config: dict = None,
-        norm_conifg: dict = None
+        norm_config: dict = None
     ) -> None:
-        super(ResNet, self).__init__(init_config=init_config, norm_config=norm_conifg)
+        super(ResNet, self).__init__(init_config=init_config, norm_config=norm_config)
         assert isinstance(layers, (list, tuple))
 
         block_dict = {'BasicBlock': BasicBlock, 'Bottleneck': Bottleneck}
@@ -211,7 +211,7 @@ class ResNet(BaseBackBone):
             self.add_module(f'layer{layer + 1}', nn.Sequential(*block))
         
         self.blocks = (self.layer1, self.layer2, self.layer3, self.layer4)
-        self._init(prefix='Backbone')
+        self.init(prefix='Backbone')
     
     def forward(self, x: Tensor) -> Tensor:
         x = self.norm(x=x)

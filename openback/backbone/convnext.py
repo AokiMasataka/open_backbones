@@ -99,7 +99,7 @@ class ConvNeXt(BaseBackBone):
 
         self.out_indices = out_indices
 
-        self._init(prefix='back bone')
+        self.init(prefix='back bone')
 
     def forward(self, x):
         x = self.norm(x=x)

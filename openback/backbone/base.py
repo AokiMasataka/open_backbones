@@ -18,7 +18,7 @@ class Normlizer(torch.nn.Module):
 			self._std = None
 		self._div = div
 	
-	@torch.no_grad
+	@torch.no_grad()
 	def __call__(self, x: torch.Tensor) -> torch.Tensor:
 		if self._div is not None:
 			x = x / self._div
