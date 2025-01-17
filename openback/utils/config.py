@@ -1,28 +1,25 @@
+import json
+
+def _load_config(config: dict, key: str) -> dict:
+    if isinstance(config[key], str):
+        with open(config[key], 'r') as f:
+            config[key] = json.load(f)[key]
+    
+    return config
+
+
 def load_config_file(path: str) -> dict:
     with open(path, 'r') as f:
-        text = f.read()
+        config = json.load(fp=f)
+
+    config = _load_config(config=config, key='backbone')
     
-    config = dict()
-    exec(text, globals(), config)
-
-    if '_base_' in config.keys():
-        for base_config_path in config.pop('_base_'):
-            base_config, _ = load_config_file(path=base_config_path)
-            config = merge_configs(config=config, base_config=base_config)
-
-    return config, config_encoder(config)
-
-
-def merge_configs(config: dict, base_config: dict) -> dict:
-    if isinstance(base_config, dict):
-        for key in base_config.keys():
-            if key in config.keys():
-                config[key] = merge_configs(config=config[key], base_config=base_config[key])
-            else:
-                config[key] = base_config[key]
-    else:
-        return config
     return config
+    
+
+def dump_config_file(config: dict, path: str) -> None:
+    with open(path, 'w') as f:
+        json.dump(obj=config, fp=f)
 
 
 def config_encoder(config: dict, indent: int = 0) -> str:

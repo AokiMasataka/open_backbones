@@ -1,0 +1,19 @@
+{
+    "backbone": {
+        "type": "ResNet",
+        "block_type": "BasicBlock",
+        "layers": [2, 2, 2, 2],
+        "channels": [64, 128, 256, 512],
+        "in_channels": 3,
+        "stem_width": 64,
+        "act_config": {
+            "type": "ReLU",
+            "inplace": true
+        },
+        "norm_config": {
+            "mean": null,
+            "std": null,
+            "div": 255.0
+        }
+    }
+}

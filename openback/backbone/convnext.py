@@ -103,7 +103,6 @@ class ConvNeXt(BaseBackBone):
 
     def forward(self, x):
         x = self.norm(x=x)
-        print(x.mean(), x.max(), x.min())
         feats = []
         for i in range(len(self.stages)):
             x = self.downsample_layers[i](x)

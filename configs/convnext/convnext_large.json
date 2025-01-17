@@ -1,0 +1,17 @@
+{
+    "backbone": {
+        "type": "ConvNeXt",
+        "depths": [3, 3, 27, 3],
+        "dims": [192, 384, 768, 1536],
+        "out_indices": [0, 1, 2, 3],
+        "drop_path_rate": 0.3,
+        "init_config": {
+            "pretrained": "ttps://dl.fbaipublicfiles.com/convnext/convnext_large_22k_1k_384.pth"
+        },
+        "norm_config": {
+            "mean": null,
+            "std": null,
+            "div": 255.0
+        }
+    }
+}

@@ -4,7 +4,7 @@ from ..utils import BaseModule
 
 class Normlizer(torch.nn.Module):
 	def __init__(self, mean: list, std: list, div: float) -> None:
-		super().__init__()
+		super(Normlizer, self).__init__()
 
 		if mean is not None or std is not None:
 			assert mean.__len__() == std.__len__()
@@ -36,8 +36,8 @@ class BaseBackBone(BaseModule):
 
 		if norm_config is not None:
 			self.norm = Normlizer(
-				mean=norm_config['mean'],
-				std=norm_config['std'],
+				mean=norm_config.get('mean', None),
+				std=norm_config.get('std', None),
 				div=norm_config.get('div', None)
 			)
 		else:

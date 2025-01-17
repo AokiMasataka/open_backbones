@@ -21,7 +21,7 @@ class Registry:
             self._module_dict[module_name] = module
         return module
 
-    def build(self, config):
+    def build(self, config: dict):
         if isinstance(config, (list, tuple)):
             return {conf['type']: self.build(config=conf.copy()) for conf in config}
         else:

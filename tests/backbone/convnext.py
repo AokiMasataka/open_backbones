@@ -1,6 +1,6 @@
 import torch
 
-from openback.backbone import ConvNeXt
+from openback import build_backbone
 from openback.utils import load_config_file
 
 
@@ -9,8 +9,7 @@ def test_convnext():
 	config, _ = load_config_file(path=config_path)
 	config['backbone']['init_config']['log_keys'] = True
 
-	_ = config['backbone'].pop('type')
-	model = ConvNeXt(**config['backbone'])
+	model = build_backbone(config=config['backbone'])
 	x = torch.randint(low=0, high=256, size=(2, 3, 256, 256), dtype=torch.float)
 
 	with torch.no_grad():

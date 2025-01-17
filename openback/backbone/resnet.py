@@ -26,7 +26,7 @@ class BasicBlock(nn.Module):
         self.bn2 = nn.BatchNorm2d(num_features=out_channels, eps=eps)
         self.act2 = build_activation(config=act_config)
 
-        self.se = SEModule(channels=out_channels)
+        self.se = SEModule(in_channels=out_channels)
         self.downsample = False
 
         if stride == 2:
@@ -88,7 +88,7 @@ class Bottleneck(nn.Module):
         self.bn3 = nn.BatchNorm2d(num_features=out_channels, eps=eps)
         self.act3 = build_activation(config=act_config)
 
-        self.se = SEModule(channels=out_channels)
+        self.se = SEModule(in_channels=out_channels)
 
         self.downsample = False
 
