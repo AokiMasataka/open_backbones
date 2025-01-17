@@ -1,7 +1,6 @@
 from torch import nn, Tensor
 from .base import BaseBackBone
 from ..layer import SEModule, build_activation
-from ..utils import BaseModule
 from ..builder import BACKBONES
 
 
